@@ -217,13 +217,34 @@ def init_db():
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             server TEXT NOT NULL,
-            is_default INTEGER NOT NULL DEFAULT 0,
 
             FOREIGN KEY (user_id)
-                REFERENCES users(id),
-
-            UNIQUE(user_id, name, server)
+                REFERENCES users(id)
         )
+    """)
+
+    character_columns = conn.execute(
+        "PRAGMA table_info(characters)"
+    ).fetchall()
+
+    character_column_names = [
+        column["name"] for column in character_columns
+    ]
+
+    if "is_default" not in character_column_names:
+        conn.execute("""
+            ALTER TABLE characters
+            ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0
+        """)
+
+    # UNIQUE(user_id, name, server) can only be expressed as a
+    # table constraint at CREATE TABLE time, so for databases
+    # that already had a characters table before this migration,
+    # enforce it as an index instead - functionally equivalent.
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS
+        idx_characters_user_name_server
+        ON characters(user_id, name, server)
     """)
 
     conn.execute("""
