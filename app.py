@@ -1,10 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    session,
+    abort
+)
+import os
+import secrets
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-
-app.secret_key = "development-secret-change-later"
 
 DATABASE = "ddo_inventory.db"
 
@@ -14,8 +22,135 @@ MAX_DESCRIPTION_LENGTH = 2000
 MAX_ATTRIBUTES_PER_ITEM = 30
 MAX_ITEMS_PER_USER = 1000
 MAX_REQUEST_SIZE = 100 * 1024
+MAX_SEARCH_CONDITIONS = 10
+MAX_SEARCH_RESULTS = 200
+MIN_MINIMUM_LEVEL = 1
+MAX_MINIMUM_LEVEL = 36
+MAX_CHARACTER_NAME_LENGTH = 50
+
+DDO_SERVERS = [
+    "Cormyr",
+    "Moonsea",
+    "Shadowdale",
+    "Thrane"
+]
+
+OPERATORS = {
+    "gte": ">=",
+    "lte": "<=",
+    "eq": "=",
+    "gt": ">",
+    "lt": "<"
+}
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_SIZE
+
+DEBUG_MODE = os.environ.get(
+    "DDO_DEBUG", "false"
+).strip().lower() == "true"
+
+
+def get_or_create_secret_key():
+
+    env_key = os.environ.get("DDO_SECRET_KEY")
+
+    if env_key:
+        return env_key
+
+    key_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "secret_key.txt"
+    )
+
+    if os.path.exists(key_path):
+
+        with open(key_path, "r") as key_file:
+            existing_key = key_file.read().strip()
+
+        if existing_key:
+            return existing_key
+
+    new_key = secrets.token_hex(32)
+
+    with open(key_path, "w") as key_file:
+        key_file.write(new_key)
+
+    return new_key
+
+
+app.secret_key = get_or_create_secret_key()
+
+
+def get_csrf_token():
+
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+
+    return session["csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = get_csrf_token
+
+
+@app.before_request
+def enforce_csrf():
+
+    if request.method != "POST":
+        return
+
+    submitted_token = request.form.get("csrf_token", "")
+    session_token = session.get("csrf_token", "")
+
+    if not session_token or not secrets.compare_digest(
+        submitted_token, session_token
+    ):
+        abort(400)
+
+
+CHARACTER_GATE_EXEMPT_ENDPOINTS = {
+    "index",
+    "login",
+    "logout",
+    "register",
+    "characters",
+    "characters_add",
+    "static"
+}
+
+
+@app.before_request
+def enforce_character_gate():
+
+    if "user_id" not in session:
+        return
+
+    if request.endpoint in CHARACTER_GATE_EXEMPT_ENDPOINTS:
+        return
+
+    if request.endpoint is None:
+        return
+
+    conn = get_db()
+
+    character_count = conn.execute("""
+        SELECT COUNT(*)
+        FROM characters
+        WHERE user_id = ?
+    """, (session["user_id"],)).fetchone()[0]
+
+    conn.close()
+
+    if character_count == 0:
+        return redirect(url_for("characters"))
+
+
+def escape_like(value):
+
+    return (
+        value.replace("\\", "\\\\")
+             .replace("%", "\\%")
+             .replace("_", "\\_")
+    )
 
 
 def get_db():
@@ -45,10 +180,51 @@ def init_db():
     column_names = [column["name"] for column in columns]
 
     if "is_admin" not in column_names:
+
         conn.execute("""
             ALTER TABLE users
             ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0
         """)
+
+        # One-time migration safety net: if this database
+        # predates the is_admin column, promote the earliest
+        # existing user so there's still a way into /admin.
+        # Going forward, admin bootstrapping happens at
+        # registration time instead (see register()).
+        first_user = conn.execute("""
+            SELECT id
+            FROM users
+            ORDER BY id
+            LIMIT 1
+        """).fetchone()
+
+        if first_user:
+            conn.execute("""
+                UPDATE users
+                SET is_admin = 1
+                WHERE id = ?
+            """, (first_user["id"],))
+
+    if "is_public" not in column_names:
+        conn.execute("""
+            ALTER TABLE users
+            ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1
+        """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS characters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            server TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+
+            FOREIGN KEY (user_id)
+                REFERENCES users(id),
+
+            UNIQUE(user_id, name, server)
+        )
+    """)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS item_types (
@@ -95,6 +271,21 @@ def init_db():
                 REFERENCES item_types(id)
         )
     """)
+
+    item_columns = conn.execute(
+        "PRAGMA table_info(items)"
+    ).fetchall()
+
+    item_column_names = [
+        column["name"] for column in item_columns
+    ]
+
+    if "character_id" not in item_column_names:
+        conn.execute("""
+            ALTER TABLE items
+            ADD COLUMN character_id INTEGER
+            REFERENCES characters(id)
+        """)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS item_attributes (
@@ -189,28 +380,6 @@ def init_db():
         )
     """)
 
-    admin_count = conn.execute("""
-        SELECT COUNT(*)
-        FROM users
-        WHERE is_admin = 1
-    """).fetchone()[0]
-
-    if admin_count == 0:
-
-        first_user = conn.execute("""
-            SELECT id
-            FROM users
-            ORDER BY id
-            LIMIT 1
-        """).fetchone()
-
-        if first_user:
-            conn.execute("""
-                UPDATE users
-                SET is_admin = 1
-                WHERE id = ?
-            """, (first_user["id"],))
-
     conn.commit()
     conn.close()
 
@@ -239,6 +408,38 @@ def current_user_is_admin():
 
 def admin_required():
     return current_user_is_admin()
+
+
+def current_user_is_public():
+
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return False
+
+    conn = get_db()
+
+    user = conn.execute("""
+        SELECT is_public
+        FROM users
+        WHERE id = ?
+    """, (user_id,)).fetchone()
+
+    conn.close()
+
+    return bool(
+        user and user["is_public"] == 1
+    )
+
+
+def get_user_characters(conn, user_id):
+
+    return conn.execute("""
+        SELECT *
+        FROM characters
+        WHERE user_id = ?
+        ORDER BY is_default DESC, name
+    """, (user_id,)).fetchall()
 
 
 def get_item_attributes(conn, item_id):
@@ -297,6 +498,11 @@ def register():
 
             try:
 
+                existing_user_count = conn.execute("""
+                    SELECT COUNT(*)
+                    FROM users
+                """).fetchone()[0]
+
                 cursor = conn.execute("""
                     INSERT INTO users (
                         username,
@@ -308,11 +514,20 @@ def register():
                     generate_password_hash(password)
                 ))
 
+                new_user_id = cursor.lastrowid
+
+                if existing_user_count == 0:
+                    conn.execute("""
+                        UPDATE users
+                        SET is_admin = 1
+                        WHERE id = ?
+                    """, (new_user_id,))
+
                 conn.commit()
 
                 session.clear()
 
-                session["user_id"] = cursor.lastrowid
+                session["user_id"] = new_user_id
                 session["username"] = username
 
                 return redirect(
@@ -413,11 +628,16 @@ def inventory():
             items.name,
             items.minimum_level,
             items.description,
-            item_types.name AS item_type
+            item_types.name AS item_type,
+            characters.name AS character_name,
+            characters.server AS character_server
         FROM items
         JOIN item_types
             ON items.item_type_id =
                item_types.id
+        LEFT JOIN characters
+            ON items.character_id =
+               characters.id
         WHERE items.user_id = ?
         ORDER BY
             {allowed_sorts[sort]}
@@ -437,6 +657,10 @@ def inventory():
             )
         )
 
+    user_characters = get_user_characters(
+        conn, session["user_id"]
+    )
+
     conn.close()
 
     return render_template(
@@ -446,8 +670,85 @@ def inventory():
         item_attributes=item_attributes,
         current_sort=sort,
         current_direction=direction,
-        is_admin=current_user_is_admin()
+        is_admin=current_user_is_admin(),
+        is_public=current_user_is_public(),
+        user_characters=user_characters
     )
+
+
+@app.route("/settings/visibility", methods=["POST"])
+def toggle_visibility():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+
+    conn.execute("""
+        UPDATE users
+        SET is_public = CASE
+            WHEN is_public = 1 THEN 0
+            ELSE 1
+        END
+        WHERE id = ?
+    """, (session["user_id"],))
+
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for("inventory"))
+
+
+@app.route("/items/reassign", methods=["POST"])
+def reassign_items():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    item_ids = request.form.getlist("item_ids")
+    character_id = request.form.get("character_id", "").strip()
+
+    if not item_ids:
+        return redirect(url_for("inventory"))
+
+    conn = get_db()
+
+    destination = None
+
+    if character_id:
+
+        character = conn.execute("""
+            SELECT id
+            FROM characters
+            WHERE id = ?
+            AND user_id = ?
+        """, (
+            character_id,
+            session["user_id"]
+        )).fetchone()
+
+        if not character:
+            conn.close()
+            return redirect(url_for("inventory"))
+
+        destination = character_id
+
+    placeholders = ",".join("?" for _ in item_ids)
+
+    conn.execute(
+        f"""
+        UPDATE items
+        SET character_id = ?
+        WHERE user_id = ?
+        AND id IN ({placeholders})
+        """,
+        [destination, session["user_id"]] + item_ids
+    )
+
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for("inventory"))
 
 
 @app.route("/item/new", methods=["GET", "POST"])
@@ -470,59 +771,75 @@ def new_item():
         ORDER BY name
     """).fetchall()
 
+    user_characters = get_user_characters(
+        conn, session["user_id"]
+    )
+
+    def render_error(error):
+        conn.close()
+        return render_template(
+            "new_item.html",
+            item_types=item_types,
+            attributes=attributes,
+            user_characters=user_characters,
+            error=error
+        )
+
     if request.method == "POST":
 
-        name = request.form["name"].strip()
+        name = request.form.get("name", "").strip()
 
-        item_type_id = request.form["item_type"]
+        item_type_id = request.form.get("item_type", "")
 
-        minimum_level = request.form[
-            "minimum_level"
-        ].strip()
+        character_id = request.form.get(
+            "character_id", ""
+        ).strip()
 
-        description = request.form[
-            "description"
-        ].strip()
+        minimum_level_raw = request.form.get(
+            "minimum_level", ""
+        ).strip()
+
+        description = request.form.get(
+            "description", ""
+        ).strip()
+
+        minimum_level = None
+
+        if minimum_level_raw:
+
+            try:
+                minimum_level = int(minimum_level_raw)
+
+            except ValueError:
+                return render_error(
+                    "Minimum level must be a whole number."
+                )
+
+            if (
+                minimum_level < MIN_MINIMUM_LEVEL
+                or minimum_level > MAX_MINIMUM_LEVEL
+            ):
+                return render_error(
+                    "Minimum level must be between "
+                    f"{MIN_MINIMUM_LEVEL} and "
+                    f"{MAX_MINIMUM_LEVEL}."
+                )
 
         if not name:
-
-            conn.close()
-
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error="Item name is required."
-            )
+            return render_error("Item name is required.")
 
         if len(name) > MAX_ITEM_NAME_LENGTH:
-
-            conn.close()
-
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error=(
-                    f"Item name must be "
-                    f"{MAX_ITEM_NAME_LENGTH} "
-                    "characters or fewer."
-                )
+            return render_error(
+                f"Item name must be "
+                f"{MAX_ITEM_NAME_LENGTH} "
+                "characters or fewer."
             )
 
         if len(description) > MAX_DESCRIPTION_LENGTH:
-
-            conn.close()
-
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error=(
-                    f"Description must be "
-                    f"{MAX_DESCRIPTION_LENGTH} "
-                    "characters or fewer."
-                )
+            return render_error(
+                f"Description must be "
+                f"{MAX_DESCRIPTION_LENGTH} "
+                "characters or fewer."
             )
 
         item_count = conn.execute("""
@@ -534,18 +851,10 @@ def new_item():
         )).fetchone()[0]
 
         if item_count >= MAX_ITEMS_PER_USER:
-
-            conn.close()
-
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error=(
-                    "Your inventory has reached the "
-                    f"maximum of {MAX_ITEMS_PER_USER} "
-                    "items."
-                )
+            return render_error(
+                "Your inventory has reached the "
+                f"maximum of {MAX_ITEMS_PER_USER} "
+                "items."
             )
 
         item_type = conn.execute("""
@@ -557,14 +866,24 @@ def new_item():
         )).fetchone()
 
         if not item_type:
+            return render_error("Invalid item type.")
 
-            conn.close()
+        character = None
 
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error="Invalid item type."
+        if character_id:
+            character = conn.execute("""
+                SELECT id
+                FROM characters
+                WHERE id = ?
+                AND user_id = ?
+            """, (
+                character_id,
+                session["user_id"]
+            )).fetchone()
+
+        if not character:
+            return render_error(
+                "Please choose which character has this item."
             )
 
         # The HTML now sends one attribute_id field
@@ -601,18 +920,10 @@ def new_item():
             )
 
         if len(submitted_attributes) > MAX_ATTRIBUTES_PER_ITEM:
-
-            conn.close()
-
-            return render_template(
-                "new_item.html",
-                item_types=item_types,
-                attributes=attributes,
-                error=(
-                    "Too many attributes. "
-                    f"The maximum is "
-                    f"{MAX_ATTRIBUTES_PER_ITEM}."
-                )
+            return render_error(
+                "Too many attributes. "
+                f"The maximum is "
+                f"{MAX_ATTRIBUTES_PER_ITEM}."
             )
 
         seen_attribute_ids = set()
@@ -621,17 +932,9 @@ def new_item():
         for attribute_id, value in submitted_attributes:
 
             if attribute_id in seen_attribute_ids:
-
-                conn.close()
-
-                return render_template(
-                    "new_item.html",
-                    item_types=item_types,
-                    attributes=attributes,
-                    error=(
-                        "The same attribute cannot "
-                        "be added more than once."
-                    )
+                return render_error(
+                    "The same attribute cannot "
+                    "be added more than once."
                 )
 
             seen_attribute_ids.add(attribute_id)
@@ -645,30 +948,14 @@ def new_item():
             )).fetchone()
 
             if not attribute:
-
-                conn.close()
-
-                return render_template(
-                    "new_item.html",
-                    item_types=item_types,
-                    attributes=attributes,
-                    error="Invalid attribute."
-                )
+                return render_error("Invalid attribute.")
 
             if attribute["value_type"] == "number":
 
                 if not value:
-
-                    conn.close()
-
-                    return render_template(
-                        "new_item.html",
-                        item_types=item_types,
-                        attributes=attributes,
-                        error=(
-                            f"{attribute['name']} "
-                            "requires a numeric value."
-                        )
+                    return render_error(
+                        f"{attribute['name']} "
+                        "requires a numeric value."
                     )
 
                 try:
@@ -676,31 +963,15 @@ def new_item():
                     numeric_value = int(value)
 
                 except ValueError:
-
-                    conn.close()
-
-                    return render_template(
-                        "new_item.html",
-                        item_types=item_types,
-                        attributes=attributes,
-                        error=(
-                            f"{attribute['name']} "
-                            "requires a whole number."
-                        )
+                    return render_error(
+                        f"{attribute['name']} "
+                        "requires a whole number."
                     )
 
                 if numeric_value <= 0:
-
-                    conn.close()
-
-                    return render_template(
-                        "new_item.html",
-                        item_types=item_types,
-                        attributes=attributes,
-                        error=(
-                            f"{attribute['name']} "
-                            "must have a value greater than zero."
-                        )
+                    return render_error(
+                        f"{attribute['name']} "
+                        "must have a value greater than zero."
                     )
 
                 value = str(numeric_value)
@@ -722,15 +993,17 @@ def new_item():
                 name,
                 item_type_id,
                 minimum_level,
-                description
+                description,
+                character_id
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             session["user_id"],
             name,
             item_type_id,
-            minimum_level or None,
-            description
+            minimum_level,
+            description,
+            character_id
         ))
 
         item_id = cursor.lastrowid
@@ -762,7 +1035,267 @@ def new_item():
     return render_template(
         "new_item.html",
         item_types=item_types,
-        attributes=attributes
+        attributes=attributes,
+        user_characters=user_characters
+    )
+
+
+@app.route("/search")
+def search():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+
+    item_types = conn.execute("""
+        SELECT *
+        FROM item_types
+        ORDER BY name
+    """).fetchall()
+
+    attributes = conn.execute("""
+        SELECT *
+        FROM attributes
+        ORDER BY name
+    """).fetchall()
+
+    attribute_lookup = {
+        str(attribute["id"]): attribute
+        for attribute in attributes
+    }
+
+    error = None
+    results = []
+    result_attributes = {}
+
+    if request.args:
+
+        name = request.args.get("name", "").strip()
+        item_type_id = request.args.get("item_type", "").strip()
+        level_min = request.args.get("level_min", "").strip()
+        level_max = request.args.get("level_max", "").strip()
+        server = request.args.get("server", "").strip()
+        character_name = request.args.get(
+            "character_name", ""
+        ).strip()
+
+        conditions = [
+            "(items.user_id = ? OR users.is_public = 1)"
+        ]
+        params = [session["user_id"]]
+
+        if not error and name:
+
+            if len(name) > MAX_ITEM_NAME_LENGTH:
+                error = (
+                    f"Item name must be "
+                    f"{MAX_ITEM_NAME_LENGTH} "
+                    "characters or fewer."
+                )
+            else:
+                conditions.append(
+                    "items.name LIKE ? ESCAPE '\\'"
+                )
+                params.append(f"%{escape_like(name)}%")
+
+        if not error and item_type_id:
+
+            item_type = conn.execute("""
+                SELECT id
+                FROM item_types
+                WHERE id = ?
+            """, (item_type_id,)).fetchone()
+
+            if not item_type:
+                error = "Invalid item type."
+            else:
+                conditions.append(
+                    "items.item_type_id = ?"
+                )
+                params.append(item_type_id)
+
+        if not error and server:
+
+            if server not in DDO_SERVERS:
+                error = "Invalid server."
+            else:
+                conditions.append(
+                    "characters.server = ?"
+                )
+                params.append(server)
+
+        if not error and character_name:
+
+            if len(character_name) > MAX_CHARACTER_NAME_LENGTH:
+                error = (
+                    "Character name must be "
+                    f"{MAX_CHARACTER_NAME_LENGTH} "
+                    "characters or fewer."
+                )
+            else:
+                conditions.append(
+                    "characters.name LIKE ? ESCAPE '\\'"
+                )
+                params.append(
+                    f"%{escape_like(character_name)}%"
+                )
+
+        if not error and level_min:
+
+            try:
+                level_min_value = int(level_min)
+                conditions.append(
+                    "items.minimum_level >= ?"
+                )
+                params.append(level_min_value)
+
+            except ValueError:
+                error = "Minimum level must be a whole number."
+
+        if not error and level_max:
+
+            try:
+                level_max_value = int(level_max)
+                conditions.append(
+                    "items.minimum_level <= ?"
+                )
+                params.append(level_max_value)
+
+            except ValueError:
+                error = "Maximum level must be a whole number."
+
+        attribute_ids = request.args.getlist("attribute_id")
+        operators = request.args.getlist("operator")
+        values = request.args.getlist("value")
+
+        if not error and len(attribute_ids) > MAX_SEARCH_CONDITIONS:
+            error = (
+                "Too many attribute filters. "
+                f"The maximum is {MAX_SEARCH_CONDITIONS}."
+            )
+
+        if not error:
+
+            for index, attribute_id in enumerate(attribute_ids):
+
+                if not attribute_id:
+                    continue
+
+                attribute = attribute_lookup.get(attribute_id)
+
+                if not attribute:
+                    error = "Invalid attribute filter."
+                    break
+
+                operator = (
+                    operators[index]
+                    if index < len(operators)
+                    else ""
+                )
+
+                value = (
+                    values[index].strip()
+                    if index < len(values)
+                    else ""
+                )
+
+                if attribute["value_type"] == "number":
+
+                    if operator not in OPERATORS:
+                        error = (
+                            f"Invalid comparison for "
+                            f"{attribute['name']}."
+                        )
+                        break
+
+                    if not value:
+                        error = (
+                            f"{attribute['name']} filter "
+                            "requires a value."
+                        )
+                        break
+
+                    try:
+                        numeric_value = int(value)
+
+                    except ValueError:
+                        error = (
+                            f"{attribute['name']} filter "
+                            "requires a whole number."
+                        )
+                        break
+
+                    conditions.append(f"""
+                        EXISTS (
+                            SELECT 1
+                            FROM item_attributes ia
+                            WHERE ia.item_id = items.id
+                            AND ia.attribute_id = ?
+                            AND CAST(ia.value AS INTEGER)
+                                {OPERATORS[operator]} ?
+                        )
+                    """)
+                    params.append(attribute_id)
+                    params.append(numeric_value)
+
+                else:
+
+                    conditions.append("""
+                        EXISTS (
+                            SELECT 1
+                            FROM item_attributes ia
+                            WHERE ia.item_id = items.id
+                            AND ia.attribute_id = ?
+                        )
+                    """)
+                    params.append(attribute_id)
+
+        if not error:
+
+            where_clause = " AND ".join(conditions)
+
+            results = conn.execute(
+                f"""
+                SELECT
+                    items.id,
+                    items.name,
+                    items.minimum_level,
+                    items.description,
+                    item_types.name AS item_type,
+                    users.username AS owner,
+                    characters.name AS character_name,
+                    characters.server AS character_server
+                FROM items
+                JOIN item_types
+                    ON items.item_type_id = item_types.id
+                JOIN users
+                    ON items.user_id = users.id
+                LEFT JOIN characters
+                    ON items.character_id = characters.id
+                WHERE {where_clause}
+                ORDER BY items.name
+                LIMIT {MAX_SEARCH_RESULTS}
+                """,
+                params
+            ).fetchall()
+
+            for item in results:
+                result_attributes[item["id"]] = (
+                    get_item_attributes(conn, item["id"])
+                )
+
+    conn.close()
+
+    return render_template(
+        "search.html",
+        item_types=item_types,
+        attributes=attributes,
+        results=results,
+        result_attributes=result_attributes,
+        error=error,
+        filters=request.args,
+        servers=DDO_SERVERS
     )
 
 
@@ -832,6 +1365,256 @@ def delete_multiple_items():
     return redirect(
         url_for("inventory")
     )
+
+
+@app.route("/characters")
+def characters():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+
+    user_characters = get_user_characters(
+        conn, session["user_id"]
+    )
+
+    conn.close()
+
+    return render_template(
+        "characters.html",
+        characters=user_characters,
+        servers=DDO_SERVERS
+    )
+
+
+@app.route("/characters/add", methods=["POST"])
+def characters_add():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    name = request.form.get("name", "").strip()
+    server = request.form.get("server", "").strip()
+
+    conn = get_db()
+
+    def render_error(error):
+        user_characters = get_user_characters(
+            conn, session["user_id"]
+        )
+        conn.close()
+        return render_template(
+            "characters.html",
+            characters=user_characters,
+            servers=DDO_SERVERS,
+            error=error
+        )
+
+    if not name:
+        return render_error("Character name is required.")
+
+    if len(name) > MAX_CHARACTER_NAME_LENGTH:
+        return render_error(
+            "Character name must be "
+            f"{MAX_CHARACTER_NAME_LENGTH} "
+            "characters or fewer."
+        )
+
+    if server not in DDO_SERVERS:
+        return render_error("Invalid server.")
+
+    existing_count = conn.execute("""
+        SELECT COUNT(*)
+        FROM characters
+        WHERE user_id = ?
+    """, (session["user_id"],)).fetchone()[0]
+
+    is_first_character = existing_count == 0
+
+    try:
+
+        cursor = conn.execute("""
+            INSERT INTO characters (
+                user_id,
+                name,
+                server,
+                is_default
+            )
+            VALUES (?, ?, ?, ?)
+        """, (
+            session["user_id"],
+            name,
+            server,
+            1 if is_first_character else 0
+        ))
+
+        new_character_id = cursor.lastrowid
+
+        if is_first_character:
+
+            # Bootstrap: attach any items this user created
+            # before characters existed to their first one.
+            conn.execute("""
+                UPDATE items
+                SET character_id = ?
+                WHERE user_id = ?
+                AND character_id IS NULL
+            """, (
+                new_character_id,
+                session["user_id"]
+            ))
+
+        conn.commit()
+
+    except sqlite3.IntegrityError:
+        return render_error(
+            "You already have a character with that "
+            "name on that server."
+        )
+
+    conn.close()
+
+    return redirect(url_for("characters"))
+
+
+@app.route(
+    "/characters/<int:character_id>/default",
+    methods=["POST"]
+)
+def characters_set_default(character_id):
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+
+    character = conn.execute("""
+        SELECT id
+        FROM characters
+        WHERE id = ?
+        AND user_id = ?
+    """, (
+        character_id,
+        session["user_id"]
+    )).fetchone()
+
+    if character:
+
+        conn.execute("""
+            UPDATE characters
+            SET is_default = 0
+            WHERE user_id = ?
+        """, (session["user_id"],))
+
+        conn.execute("""
+            UPDATE characters
+            SET is_default = 1
+            WHERE id = ?
+        """, (character_id,))
+
+        conn.commit()
+
+    conn.close()
+
+    return redirect(url_for("characters"))
+
+
+@app.route(
+    "/characters/<int:character_id>/delete",
+    methods=["POST"]
+)
+def characters_delete(character_id):
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+
+    character = conn.execute("""
+        SELECT *
+        FROM characters
+        WHERE id = ?
+        AND user_id = ?
+    """, (
+        character_id,
+        session["user_id"]
+    )).fetchone()
+
+    if not character:
+        conn.close()
+        return redirect(url_for("characters"))
+
+    reassign_to = request.form.get(
+        "reassign_to", ""
+    ).strip()
+
+    destination = None
+
+    if reassign_to:
+
+        destination_character = conn.execute("""
+            SELECT id
+            FROM characters
+            WHERE id = ?
+            AND user_id = ?
+            AND id != ?
+        """, (
+            reassign_to,
+            session["user_id"],
+            character_id
+        )).fetchone()
+
+        if not destination_character:
+
+            user_characters = get_user_characters(
+                conn, session["user_id"]
+            )
+            conn.close()
+
+            return render_template(
+                "characters.html",
+                characters=user_characters,
+                servers=DDO_SERVERS,
+                error="Invalid destination character."
+            )
+
+        destination = reassign_to
+
+    conn.execute("""
+        UPDATE items
+        SET character_id = ?
+        WHERE character_id = ?
+    """, (destination, character_id))
+
+    was_default = character["is_default"] == 1
+
+    conn.execute("""
+        DELETE FROM characters
+        WHERE id = ?
+    """, (character_id,))
+
+    if was_default:
+
+        remaining = conn.execute("""
+            SELECT id
+            FROM characters
+            WHERE user_id = ?
+            ORDER BY id
+            LIMIT 1
+        """, (session["user_id"],)).fetchone()
+
+        if remaining:
+            conn.execute("""
+                UPDATE characters
+                SET is_default = 1
+                WHERE id = ?
+            """, (remaining["id"],))
+
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for("characters"))
 
 
 @app.route("/admin")
@@ -1164,7 +1947,7 @@ if __name__ == "__main__":
     init_db()
 
     app.run(
-        debug=True,
+        debug=DEBUG_MODE,
         host="127.0.0.1",
         port=5000
     )

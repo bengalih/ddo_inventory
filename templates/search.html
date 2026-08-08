@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+    <title>Search Items</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+<body>
+
+<h1>Search Items</h1>
+
+<p>
+    <a href="{{ url_for('inventory') }}">
+        Back to My Inventory
+    </a>
+</p>
+
+{% if error %}
+
+<p class="error">
+    {{ error }}
+</p>
+
+{% endif %}
+
+<form method="get">
+
+<fieldset>
+
+    <legend>Basic Filters</legend>
+
+    <p>
+        <label>Item Name Contains</label><br>
+
+        <input
+            type="text"
+            name="name"
+            maxlength="100"
+            value="{{ filters.get('name', '') }}"
+        >
+    </p>
+
+    <p>
+        <label>Item Type</label><br>
+
+        <select name="item_type">
+
+            <option value="">
+                -- Any Type --
+            </option>
+
+            {% for item_type in item_types %}
+
+            <option
+                value="{{ item_type['id'] }}"
+                {% if filters.get('item_type') == item_type['id']|string %}
+                    selected
+                {% endif %}
+            >
+                {{ item_type['name'] }}
+            </option>
+
+            {% endfor %}
+
+        </select>
+    </p>
+
+    <p>
+        <label>Minimum Level (at least)</label><br>
+
+        <input
+            type="number"
+            name="level_min"
+            min="0"
+            step="1"
+            value="{{ filters.get('level_min', '') }}"
+        >
+    </p>
+
+    <p>
+        <label>Minimum Level (at most)</label><br>
+
+        <input
+            type="number"
+            name="level_max"
+            min="0"
+            step="1"
+            value="{{ filters.get('level_max', '') }}"
+        >
+    </p>
+
+    <p>
+        <label>Server</label><br>
+
+        <select name="server">
+
+            <option value="">
+                -- Any Server --
+            </option>
+
+            {% for server in servers %}
+
+            <option
+                value="{{ server }}"
+                {% if filters.get('server') == server %}
+                    selected
+                {% endif %}
+            >
+                {{ server }}
+            </option>
+
+            {% endfor %}
+
+        </select>
+    </p>
+
+    <p>
+        <label>Character Name Contains</label><br>
+
+        <input
+            type="text"
+            name="character_name"
+            maxlength="50"
+            value="{{ filters.get('character_name', '') }}"
+        >
+    </p>
+
+</fieldset>
+
+
+<fieldset>
+
+    <legend>Attribute Filters (all must match)</legend>
+
+    <div id="filters"></div>
+
+    <p>
+        <button
+            type="button"
+            onclick="addFilterRow('', '', '')"
+        >
+            Add Attribute Filter
+        </button>
+    </p>
+
+</fieldset>
+
+
+<p>
+    <button type="submit">
+        Search
+    </button>
+</p>
+
+</form>
+
+
+{% if results %}
+
+<h2>Results ({{ results|length }})</h2>
+
+<table>
+
+    <thead>
+        <tr>
+            <th>Owner</th>
+            <th>Character</th>
+            <th>Server</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Minimum Level</th>
+            <th>Attributes</th>
+            <th>Description</th>
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% for item in results %}
+
+        <tr>
+
+            <td>
+                {{ item['owner'] }}
+            </td>
+
+            <td>
+
+                {% if item['character_name'] %}
+                    {{ item['character_name'] }}
+                {% else %}
+                    —
+                {% endif %}
+
+            </td>
+
+            <td>
+
+                {% if item['character_server'] %}
+                    {{ item['character_server'] }}
+                {% else %}
+                    —
+                {% endif %}
+
+            </td>
+
+            <td>
+                {{ item['name'] }}
+            </td>
+
+            <td>
+                {{ item['item_type'] }}
+            </td>
+
+            <td>
+
+                {% if item['minimum_level'] is not none %}
+                    {{ item['minimum_level'] }}
+                {% else %}
+                    —
+                {% endif %}
+
+            </td>
+
+            <td class="attributes">
+
+                {% if result_attributes[item['id']] %}
+
+                    {% for attribute in result_attributes[item['id']] %}
+
+                        {% if attribute['value_type'] == 'number' %}
+                            {{ attribute['name'] }}
+                            +{{ attribute['value'] }}
+                        {% else %}
+                            {{ attribute['name'] }}
+                        {% endif %}
+
+                        {% if not loop.last %}
+                            <br>
+                        {% endif %}
+
+                    {% endfor %}
+
+                {% else %}
+                    —
+                {% endif %}
+
+            </td>
+
+            <td>
+
+                {% if item['description'] %}
+                    {{ item['description'] }}
+                {% else %}
+                    —
+                {% endif %}
+
+            </td>
+
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+{% elif filters %}
+
+<p>
+    No items matched your search.
+</p>
+
+{% endif %}
+
+
+<script>
+
+const attributeTypes = {
+
+    {% for attribute in attributes %}
+
+    "{{ attribute['id'] }}":
+        "{{ attribute['value_type'] }}",
+
+    {% endfor %}
+
+};
+
+const operatorOptions = [
+    ["gte", "\u2265 at least"],
+    ["gt", "> greater than"],
+    ["eq", "= exactly"],
+    ["lt", "< less than"],
+    ["lte", "\u2264 at most"]
+];
+
+
+function addFilterRow(initialAttributeId, initialOperator, initialValue) {
+
+    const container =
+        document.getElementById("filters");
+
+    const row =
+        document.createElement("div");
+
+    row.className = "filter-row";
+
+
+    const select =
+        document.createElement("select");
+
+    select.name = "attribute_id";
+
+
+    const blank =
+        document.createElement("option");
+
+    blank.value = "";
+    blank.textContent = "-- Select Attribute --";
+    select.appendChild(blank);
+
+
+    {% for attribute in attributes %}
+
+    const option{{ attribute['id'] }} =
+        document.createElement("option");
+
+    option{{ attribute['id'] }}.value =
+        "{{ attribute['id'] }}";
+
+    option{{ attribute['id'] }}.textContent =
+        "{{ attribute['name'] }}";
+
+    select.appendChild(
+        option{{ attribute['id'] }}
+    );
+
+    {% endfor %}
+
+    select.value = initialAttributeId;
+
+
+    const operator =
+        document.createElement("select");
+
+    operator.name = "operator";
+
+    operatorOptions.forEach(function(pair) {
+
+        const opt =
+            document.createElement("option");
+
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        operator.appendChild(opt);
+    });
+
+    operator.value = initialOperator || "gte";
+
+
+    const value =
+        document.createElement("input");
+
+    value.type = "number";
+    value.name = "value";
+    value.step = "1";
+    value.placeholder = "Value";
+    value.value = initialValue || "";
+
+
+    function refreshVisibility() {
+
+        if (attributeTypes[select.value] === "number") {
+
+            operator.style.display = "inline-block";
+            value.style.display = "inline-block";
+
+        } else {
+
+            operator.style.display = "none";
+            value.style.display = "none";
+            value.value = "";
+        }
+    }
+
+    select.addEventListener("change", refreshVisibility);
+    refreshVisibility();
+
+
+    const remove =
+        document.createElement("button");
+
+    remove.type = "button";
+    remove.textContent = "Remove";
+
+    remove.addEventListener("click", function() {
+        row.remove();
+    });
+
+
+    row.appendChild(select);
+    row.appendChild(operator);
+    row.appendChild(value);
+    row.appendChild(remove);
+
+    container.appendChild(row);
+}
+
+
+const existingFilters = [
+
+    {% for attribute_id in filters.getlist('attribute_id') %}
+
+    {
+        attribute_id: "{{ attribute_id }}",
+        operator: "{{ filters.getlist('operator')[loop.index0] if loop.index0 < filters.getlist('operator')|length else '' }}",
+        value: "{{ filters.getlist('value')[loop.index0] if loop.index0 < filters.getlist('value')|length else '' }}"
+    },
+
+    {% endfor %}
+
+];
+
+if (existingFilters.length > 0) {
+
+    existingFilters.forEach(function(filter) {
+        addFilterRow(
+            filter.attribute_id,
+            filter.operator,
+            filter.value
+        );
+    });
+
+} else {
+
+    addFilterRow('', '', '');
+}
+
+</script>
+
+</body>
+</html>

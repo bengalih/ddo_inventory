@@ -4,44 +4,10 @@
 
     <title>{{ username }}'s Inventory</title>
 
-    <style>
-
-        body {
-            font-family: Arial, sans-serif;
-            margin: 30px;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-
-        th,
-        td {
-            border: 1px solid #ccc;
-            padding: 8px;
-            text-align: left;
-            vertical-align: top;
-        }
-
-        th {
-            background: #eee;
-        }
-
-        th a {
-            text-decoration: none;
-            color: inherit;
-        }
-
-        .attributes {
-            line-height: 1.6;
-        }
-
-        .actions {
-            white-space: nowrap;
-        }
-
-    </style>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
 
 </head>
 
@@ -50,10 +16,22 @@
 <h1>{{ username }}'s Inventory</h1>
 
 
-<p>
+<p class="nav">
 
     <a href="{{ url_for('new_item') }}">
         Add Item
+    </a>
+
+    |
+
+    <a href="{{ url_for('search') }}">
+        Search
+    </a>
+
+    |
+
+    <a href="{{ url_for('characters') }}">
+        Characters
     </a>
 
     |
@@ -75,12 +53,35 @@
 </p>
 
 
-<form
-    method="post"
-    action="{{ url_for('delete_multiple_items') }}"
-    onsubmit="return confirmDelete();"
->
+<p>
 
+    Your inventory is currently:
+    <strong>{{ "Public" if is_public else "Private" }}</strong>
+
+    {% if is_public %}
+        (visible to others in search)
+    {% else %}
+        (hidden from others' search results)
+    {% endif %}
+
+    <form
+        method="post"
+        action="{{ url_for('toggle_visibility') }}"
+        class="inline-form"
+    >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <button type="submit">
+            Make {{ "Private" if is_public else "Public" }}
+        </button>
+    </form>
+
+</p>
+
+
+<form method="post">
+
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
 <table>
 
@@ -187,6 +188,16 @@
 
 
             <th>
+                Character
+            </th>
+
+
+            <th>
+                Server
+            </th>
+
+
+            <th>
                 Description
             </th>
 
@@ -274,6 +285,28 @@
 
                 <td>
 
+                    {% if item['character_name'] %}
+                        {{ item['character_name'] }}
+                    {% else %}
+                        —
+                    {% endif %}
+
+                </td>
+
+
+                <td>
+
+                    {% if item['character_server'] %}
+                        {{ item['character_server'] }}
+                    {% else %}
+                        —
+                    {% endif %}
+
+                </td>
+
+
+                <td>
+
                     {% if item['description'] %}
 
                         {{ item['description'] }}
@@ -295,8 +328,8 @@
             <tr>
 
                 <td
-                    colspan="6"
-                    style="text-align:center;"
+                    colspan="8"
+                    class="empty-row"
                 >
 
                     Your inventory is empty.
@@ -314,13 +347,52 @@
 
 {% if items %}
 
-<p>
+<div class="bulk-actions">
 
-    <button type="submit">
-        Delete Selected Items
-    </button>
+    <p>
 
-</p>
+        <button
+            type="submit"
+            formaction="{{ url_for('delete_multiple_items') }}"
+            onclick="return confirmDelete();"
+        >
+            Delete Selected Items
+        </button>
+
+    </p>
+
+    <p>
+
+        Reassign selected items to:
+
+        <select name="character_id">
+
+            <option value="">
+                (Unassigned)
+            </option>
+
+            {% for character in user_characters %}
+
+            <option value="{{ character['id'] }}">
+                {{ character['name'] }}
+                ({{ character['server'] }})
+            </option>
+
+            {% endfor %}
+
+        </select>
+
+        <button
+            type="submit"
+            formaction="{{ url_for('reassign_items') }}"
+            onclick="return confirmReassign();"
+        >
+            Reassign Selected
+        </button>
+
+    </p>
+
+</div>
 
 {% endif %}
 
@@ -345,14 +417,19 @@ function toggleAll(source) {
 }
 
 
+function countSelected() {
+
+    return document.querySelectorAll(
+        ".item_checkbox:checked"
+    ).length;
+}
+
+
 function confirmDelete() {
 
-    const selected =
-        document.querySelectorAll(
-            ".item_checkbox:checked"
-        );
+    const selected = countSelected();
 
-    if (selected.length === 0) {
+    if (selected === 0) {
 
         alert(
             "Select at least one item to delete."
@@ -363,9 +440,26 @@ function confirmDelete() {
 
     return confirm(
         "Delete " +
-        selected.length +
+        selected +
         " selected item(s)?"
     );
+}
+
+
+function confirmReassign() {
+
+    const selected = countSelected();
+
+    if (selected === 0) {
+
+        alert(
+            "Select at least one item to reassign."
+        );
+
+        return false;
+    }
+
+    return true;
 }
 
 </script>

@@ -4,36 +4,10 @@
 
     <title>DDO Inventory Administration</title>
 
-    <style>
-
-        body {
-            font-family: Arial, sans-serif;
-            margin: 30px;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-bottom: 30px;
-        }
-
-        th,
-        td {
-            border: 1px solid #ccc;
-            padding: 8px;
-            text-align: left;
-            vertical-align: top;
-        }
-
-        th {
-            background: #eee;
-        }
-
-        .edit-form {
-            display: inline;
-        }
-
-    </style>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
 
 </head>
 
@@ -64,6 +38,8 @@
     method="post"
     action="{{ url_for('admin_add_attribute') }}"
 >
+
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <input
         type="text"
@@ -142,6 +118,8 @@
                     ) }}"
                 >
 
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                     <input
                         type="text"
                         name="name"
@@ -209,6 +187,8 @@
                     );"
                 >
 
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                     <button type="submit">
                         Delete
                     </button>
@@ -241,6 +221,8 @@
     method="post"
     action="{{ url_for('admin_add_item_type') }}"
 >
+
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <input
         type="text"
@@ -299,6 +281,8 @@
                     ) }}"
                 >
 
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                     <input
                         type="text"
                         name="name"
@@ -336,6 +320,8 @@
                         'Delete this item type?'
                     );"
                 >
+
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <button type="submit">
                         Delete

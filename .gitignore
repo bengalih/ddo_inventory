@@ -2,3 +2,4 @@ venv/
 __pycache__/
 *.pyc
 ddo_inventory.db
+secret_key.txt

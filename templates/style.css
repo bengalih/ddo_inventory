@@ -1,0 +1,246 @@
+/* DDO Inventory — shared stylesheet
+   Palette: ink navy chrome, parchment surfaces, muted gold accent. */
+
+:root {
+    --ink: #1b2430;
+    --ink-light: #2a374a;
+    --parchment: #faf6ed;
+    --parchment-dim: #f1ead8;
+    --text-dark: #2a2118;
+    --text-light: #ede6d6;
+    --text-muted: #6b6255;
+    --gold: #c9962c;
+    --gold-dark: #a67818;
+    --border: #d8cfbc;
+    --danger: #b4452f;
+    --danger-dark: #8f3524;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0 0 60px;
+    background: var(--parchment);
+    color: var(--text-dark);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+h1 {
+    margin: 0;
+    padding: 24px 32px;
+    background: var(--ink);
+    color: var(--text-light);
+    font-family: Georgia, "Iowan Old Style", Palatino, serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-bottom: 3px solid var(--gold);
+}
+
+h2 {
+    font-family: Georgia, "Iowan Old Style", Palatino, serif;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin: 32px 32px 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Page content sits in a consistent gutter below the banner heading */
+body > p,
+body > form,
+body > table,
+body > div,
+body > h2 {
+    margin-left: 32px;
+    margin-right: 32px;
+}
+
+body > h1 + p,
+body > h1 + form {
+    margin-top: 20px;
+}
+
+a {
+    color: var(--gold-dark);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Top navigation bar under the title */
+p.nav {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+p.nav a {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.error {
+    background: #f6e2dc;
+    border: 1px solid var(--danger);
+    color: var(--danger-dark);
+    padding: 10px 14px;
+    border-radius: 4px;
+    max-width: 640px;
+}
+
+/* Tables */
+table {
+    border-collapse: collapse;
+    width: calc(100% - 64px);
+    margin: 16px 32px 24px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(27, 36, 48, 0.08);
+}
+
+th,
+td {
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: var(--ink);
+    color: var(--text-light);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+
+th a {
+    color: var(--text-light);
+}
+
+tbody tr:hover {
+    background: var(--parchment-dim);
+}
+
+.empty-row {
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.actions {
+    white-space: nowrap;
+}
+
+/* Attribute chips — echoes how DDO itself displays item properties */
+.attributes {
+    line-height: 2;
+}
+
+/* Forms */
+form {
+    margin: 0;
+}
+
+.inline-form {
+    display: inline-block;
+    margin-right: 6px;
+}
+
+label {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: white;
+    color: var(--text-dark);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid var(--gold);
+    outline-offset: 1px;
+    border-color: var(--gold);
+}
+
+button,
+input[type="submit"] {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    background: var(--gold);
+    color: var(--ink);
+    cursor: pointer;
+}
+
+button:hover,
+input[type="submit"]:hover {
+    background: var(--gold-dark);
+    color: white;
+}
+
+fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 16px;
+    padding: 14px 18px;
+    background: white;
+}
+
+legend {
+    font-family: Georgia, "Iowan Old Style", Palatino, serif;
+    font-weight: 600;
+    padding: 0 8px;
+    color: var(--text-dark);
+}
+
+.filter-row,
+.attribute-row {
+    margin-bottom: 8px;
+}
+
+.filter-row select,
+.filter-row input,
+.attribute-row select,
+.attribute-row input {
+    margin-right: 6px;
+}
+
+.bulk-actions {
+    background: var(--parchment-dim);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 18px;
+    margin: 16px 32px 24px;
+}
+
+.bulk-actions p {
+    margin: 6px 0;
+}
