@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+    <title>DDO Inventory Administration</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 30px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #eee;
+        }
+
+        .edit-form {
+            display: inline;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<h1>Administration</h1>
+
+
+<p>
+
+    <a href="{{ url_for('inventory') }}">
+        Back to Inventory
+    </a>
+
+    |
+
+    <a href="{{ url_for('logout') }}">
+        Logout
+    </a>
+
+</p>
+
+
+<h2>Attributes</h2>
+
+
+<form
+    method="post"
+    action="{{ url_for('admin_add_attribute') }}"
+>
+
+    <input
+        type="text"
+        name="name"
+        placeholder="New attribute name"
+        required
+    >
+
+    <select
+        name="value_type"
+        required
+    >
+
+        <option value="none">
+            No Value
+        </option>
+
+        <option value="number">
+            Numeric Value Required
+        </option>
+
+    </select>
+
+
+    <button type="submit">
+        Add Attribute
+    </button>
+
+</form>
+
+
+<br>
+
+
+<table>
+
+    <thead>
+
+        <tr>
+
+            <th>
+                Attribute
+            </th>
+
+            <th>
+                Value Type
+            </th>
+
+            <th>
+                Used By Items
+            </th>
+
+            <th>
+                Actions
+            </th>
+
+        </tr>
+
+    </thead>
+
+
+    <tbody>
+
+        {% for attribute in attributes %}
+
+        <tr>
+
+            <td>
+
+                <form
+                    class="edit-form"
+                    method="post"
+                    action="{{ url_for(
+                        'admin_edit_attribute',
+                        attribute_id=attribute['id']
+                    ) }}"
+                >
+
+                    <input
+                        type="text"
+                        name="name"
+                        value="{{ attribute['name'] }}"
+                        required
+                    >
+
+            </td>
+
+
+            <td>
+
+                    <select
+                        name="value_type"
+                    >
+
+                        <option
+                            value="none"
+                            {% if attribute["value_type"] == "none" %}
+                            selected
+                            {% endif %}
+                        >
+                            No Value
+                        </option>
+
+                        <option
+                            value="number"
+                            {% if attribute["value_type"] == "number" %}
+                            selected
+                            {% endif %}
+                        >
+                            Numeric Value Required
+                        </option>
+
+                    </select>
+
+            </td>
+
+
+            <td>
+                {{ attribute["usage_count"] }}
+            </td>
+
+
+            <td>
+
+                    <button type="submit">
+                        Save
+                    </button>
+
+                </form>
+
+
+                {% if attribute["usage_count"] == 0 %}
+
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'admin_delete_attribute',
+                        attribute_id=attribute['id']
+                    ) }}"
+                    style="display:inline"
+                    onsubmit="return confirm(
+                        'Delete this attribute?'
+                    );"
+                >
+
+                    <button type="submit">
+                        Delete
+                    </button>
+
+                </form>
+
+                {% else %}
+
+                <span>
+                    Cannot delete — in use
+                </span>
+
+                {% endif %}
+
+            </td>
+
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+
+<h2>Item Types</h2>
+
+
+<form
+    method="post"
+    action="{{ url_for('admin_add_item_type') }}"
+>
+
+    <input
+        type="text"
+        name="name"
+        placeholder="New item type"
+        required
+    >
+
+    <button type="submit">
+        Add Item Type
+    </button>
+
+</form>
+
+
+<br>
+
+
+<table>
+
+    <thead>
+
+        <tr>
+
+            <th>
+                Item Type
+            </th>
+
+            <th>
+                Used By Items
+            </th>
+
+            <th>
+                Actions
+            </th>
+
+        </tr>
+
+    </thead>
+
+
+    <tbody>
+
+        {% for item_type in item_types %}
+
+        <tr>
+
+            <td>
+
+                <form
+                    class="edit-form"
+                    method="post"
+                    action="{{ url_for(
+                        'admin_edit_item_type',
+                        item_type_id=item_type['id']
+                    ) }}"
+                >
+
+                    <input
+                        type="text"
+                        name="name"
+                        value="{{ item_type['name'] }}"
+                        required
+                    >
+
+            </td>
+
+
+            <td>
+                {{ item_type["usage_count"] }}
+            </td>
+
+
+            <td>
+
+                    <button type="submit">
+                        Save
+                    </button>
+
+                </form>
+
+
+                {% if item_type["usage_count"] == 0 %}
+
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'admin_delete_item_type',
+                        item_type_id=item_type['id']
+                    ) }}"
+                    style="display:inline"
+                    onsubmit="return confirm(
+                        'Delete this item type?'
+                    );"
+                >
+
+                    <button type="submit">
+                        Delete
+                    </button>
+
+                </form>
+
+                {% else %}
+
+                <span>
+                    Cannot delete — in use
+                </span>
+
+                {% endif %}
+
+            </td>
+
+        </tr>
+
+        {% endfor %}
+
+    </tbody>
+
+</table>
+
+
+</body>
+</html>
