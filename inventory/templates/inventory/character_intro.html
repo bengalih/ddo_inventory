@@ -1,0 +1,33 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}Welcome{% endblock %}
+
+{% block content %}
+
+<h1>Welcome to DDO Inventory</h1>
+
+<p>
+    Items don't have to belong to a character — you can add
+    items right away and assign (or reassign) them to a
+    character whenever you like, including later.
+</p>
+
+<p>
+    Characters are useful for one thing in particular: when
+    someone searches and finds an item they need, knowing which
+    character (and which server) has it tells them who to ask.
+    If you'd rather set that up now, you can — or just skip it
+    and dive in.
+</p>
+
+<p>
+    <a href="{% url 'characters' %}">
+        <button type="button">Create a Character</button>
+    </a>
+
+    <a href="{% url 'inventory' %}">
+        <button type="button">Skip for now</button>
+    </a>
+</p>
+
+{% endblock %}

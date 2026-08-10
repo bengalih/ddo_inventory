@@ -1,24 +1,15 @@
-<!DOCTYPE html>
-<html>
-<head>
+{% extends "inventory/base.html" %}
 
-    <title>My Characters</title>
+{% block title %}My Characters{% endblock %}
 
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='style.css') }}"
-    >
-
-</head>
-
-<body>
+{% block content %}
 
 <h1>My Characters</h1>
 
 {% if characters %}
 
 <p class="nav">
-    <a href="{{ url_for('inventory') }}">
+    <a href="{% url 'inventory' %}">
         Back to Inventory
     </a>
 </p>
@@ -35,11 +26,7 @@
 {% endif %}
 
 {% if error %}
-
-<p class="error">
-    {{ error }}
-</p>
-
+<p class="error">{{ error }}</p>
 {% endif %}
 
 
@@ -62,38 +49,28 @@
 
         <tr>
 
-            <td>
-                {{ character['name'] }}
-            </td>
+            <td>{{ character.name }}</td>
+
+            <td>{{ character.get_server_display }}</td>
 
             <td>
-                {{ character['server'] }}
-            </td>
-
-            <td>
-
-                {% if character['is_default'] == 1 %}
+                {% if character.is_default %}
                     Yes
                 {% else %}
                     —
                 {% endif %}
-
             </td>
 
             <td class="actions">
 
-                {% if character['is_default'] != 1 %}
+                {% if not character.is_default %}
 
                 <form
                     class="inline-form"
                     method="post"
-                    action="{{ url_for(
-                        'characters_set_default',
-                        character_id=character['id']
-                    ) }}"
+                    action="{% url 'characters_set_default' character.id %}"
                 >
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
+                    {% csrf_token %}
                     <button type="submit">
                         Make Default
                     </button>
@@ -104,38 +81,29 @@
                 <form
                     class="inline-form"
                     method="post"
-                    action="{{ url_for(
-                        'characters_delete',
-                        character_id=character['id']
-                    ) }}"
+                    action="{% url 'characters_delete' character.id %}"
                     onsubmit="return confirm(
                         'Delete this character? Any items ' +
                         'assigned to them will move to whoever ' +
                         'you pick below (or become unassigned).'
                     );"
                 >
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% csrf_token %}
 
                     <select name="reassign_to">
-
                         <option value="">
                             (Leave items unassigned)
                         </option>
 
                         {% for other in characters %}
-
-                            {% if other['id'] != character['id'] %}
-
-                            <option value="{{ other['id'] }}">
+                            {% if other.id != character.id %}
+                            <option value="{{ other.id }}">
                                 Move items to
-                                {{ other['name'] }}
-                                ({{ other['server'] }})
+                                {{ other.name }}
+                                ({{ other.get_server_display }})
                             </option>
-
                             {% endif %}
-
                         {% endfor %}
-
                     </select>
 
                     <button type="submit">
@@ -158,39 +126,28 @@
 
 <h2>Add a Character</h2>
 
-<form method="post" action="{{ url_for('characters_add') }}">
+<form method="post" action="{% url 'characters_add' %}">
 
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <p class="error">{{ form.non_field_errors.0 }}</p>
+    {% endif %}
 
     <p>
         <label>Character Name</label><br>
-
-        <input
-            type="text"
-            name="name"
-            maxlength="50"
-            required
-        >
+        {{ form.name }}
+        {% if form.name.errors %}
+        <br><span class="error">{{ form.name.errors.0 }}</span>
+        {% endif %}
     </p>
 
     <p>
         <label>Server</label><br>
-
-        <select name="server" required>
-
-            <option value="">
-                -- Select Server --
-            </option>
-
-            {% for server in servers %}
-
-            <option value="{{ server }}">
-                {{ server }}
-            </option>
-
-            {% endfor %}
-
-        </select>
+        {{ form.server }}
+        {% if form.server.errors %}
+        <br><span class="error">{{ form.server.errors.0 }}</span>
+        {% endif %}
     </p>
 
     <p>
@@ -201,5 +158,4 @@
 
 </form>
 
-</body>
-</html>
+{% endblock %}

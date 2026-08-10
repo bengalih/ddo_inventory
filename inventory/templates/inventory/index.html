@@ -1,0 +1,21 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}DDO Inventory{% endblock %}
+
+{% block content %}
+
+<h1>DDO Inventory</h1>
+
+<p>
+    Shared item tracker for Dungeons &amp; Dragons Online.
+</p>
+
+<p>
+    <a href="{% url 'login' %}">Login</a>
+</p>
+
+<p>
+    <a href="{% url 'register' %}">Create Account</a>
+</p>
+
+{% endblock %}

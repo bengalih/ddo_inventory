@@ -1,5 +1,5 @@
 venv/
 __pycache__/
 *.pyc
-ddo_inventory.db
+db.sqlite3
 secret_key.txt

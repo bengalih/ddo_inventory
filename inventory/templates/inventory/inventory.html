@@ -1,0 +1,258 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}{{ user.username }}'s Inventory{% endblock %}
+
+{% block content %}
+
+<h1>{{ user.username }}'s Inventory</h1>
+
+
+<p class="nav">
+
+    <a href="{% url 'new_item' %}">Add Item</a>
+    |
+    <a href="{% url 'search' %}">Search</a>
+    |
+    <a href="{% url 'characters' %}">Characters</a>
+    |
+    {% if user.is_staff %}
+    <a href="{% url 'admin:index' %}">Admin</a>
+    |
+    {% endif %}
+    <a href="{% url 'logout' %}">Logout</a>
+
+</p>
+
+
+<p>
+
+    Your inventory is currently:
+    <strong>{% if is_public %}Public{% else %}Private{% endif %}</strong>
+
+    {% if is_public %}
+        (visible to others in search)
+    {% else %}
+        (hidden from others' search results)
+    {% endif %}
+
+    <form
+        method="post"
+        action="{% url 'toggle_visibility' %}"
+        class="inline-form"
+    >
+        {% csrf_token %}
+        <button type="submit">
+            Make {% if is_public %}Private{% else %}Public{% endif %}
+        </button>
+    </form>
+
+</p>
+
+
+<form method="post">
+
+{% csrf_token %}
+
+<table>
+
+    <thead>
+        <tr>
+
+            <th>
+                <input type="checkbox" id="select_all" onclick="toggleAll(this)">
+            </th>
+
+            <th>
+                <a href="{% url 'inventory' %}?sort=name&direction={% if current_sort == 'name' and current_direction == 'asc' %}desc{% else %}asc{% endif %}">
+                    Name
+                    {% if current_sort == 'name' %}
+                        {% if current_direction == 'asc' %}▲{% else %}▼{% endif %}
+                    {% endif %}
+                </a>
+            </th>
+
+            <th>
+                <a href="{% url 'inventory' %}?sort=type&direction={% if current_sort == 'type' and current_direction == 'asc' %}desc{% else %}asc{% endif %}">
+                    Type
+                    {% if current_sort == 'type' %}
+                        {% if current_direction == 'asc' %}▲{% else %}▼{% endif %}
+                    {% endif %}
+                </a>
+            </th>
+
+            <th>
+                <a href="{% url 'inventory' %}?sort=minimum_level&direction={% if current_sort == 'minimum_level' and current_direction == 'asc' %}desc{% else %}asc{% endif %}">
+                    Minimum Level
+                    {% if current_sort == 'minimum_level' %}
+                        {% if current_direction == 'asc' %}▲{% else %}▼{% endif %}
+                    {% endif %}
+                </a>
+            </th>
+
+            <th>Attributes</th>
+            <th>Character</th>
+            <th>Server</th>
+            <th>Description</th>
+
+        </tr>
+    </thead>
+
+    <tbody>
+
+        {% if items %}
+
+            {% for item in items %}
+
+            <tr>
+
+                <td>
+                    <input type="checkbox" name="item_ids" value="{{ item.id }}" class="item_checkbox">
+                </td>
+
+                <td>{% if item.name %}{{ item.name }}{% else %}—{% endif %}</td>
+
+                <td>{{ item.item_type.name }}</td>
+
+                <td>
+                    {% if item.minimum_level is not None %}
+                        {{ item.minimum_level }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+
+                <td class="attributes">
+                    {% with item_attrs=item.item_attributes.all %}
+                        {% if item_attrs %}
+                            {% for ia in item_attrs %}
+                                {% if ia.attribute.value_type == 'number' %}
+                                    {{ ia.attribute.name }} +{{ ia.value }}
+                                {% else %}
+                                    {{ ia.attribute.name }}
+                                {% endif %}
+                                {% if not forloop.last %}<br>{% endif %}
+                            {% endfor %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    {% endwith %}
+                </td>
+
+                <td>
+                    {% if item.character %}
+                        {{ item.character.name }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.character %}
+                        {{ item.character.get_server_display }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.description %}
+                        {{ item.description }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+
+            </tr>
+
+            {% endfor %}
+
+        {% else %}
+
+            <tr>
+                <td colspan="8" class="empty-row">
+                    Your inventory is empty.
+                </td>
+            </tr>
+
+        {% endif %}
+
+    </tbody>
+
+</table>
+
+
+{% if items %}
+
+<div class="bulk-actions">
+
+    <p>
+        <button
+            type="submit"
+            formaction="{% url 'delete_multiple_items' %}"
+            onclick="return confirmDelete();"
+        >
+            Delete Selected Items
+        </button>
+    </p>
+
+    <p>
+        Reassign selected items to:
+
+        <select name="character_id">
+            <option value="">(Unassigned)</option>
+            {% for character in user_characters %}
+            <option value="{{ character.id }}">
+                {{ character.name }} ({{ character.get_server_display }})
+            </option>
+            {% endfor %}
+        </select>
+
+        <button
+            type="submit"
+            formaction="{% url 'reassign_items' %}"
+            onclick="return confirmReassign();"
+        >
+            Reassign Selected
+        </button>
+    </p>
+
+</div>
+
+{% endif %}
+
+</form>
+
+
+<script>
+
+function toggleAll(source) {
+    document.querySelectorAll(".item_checkbox").forEach(function(checkbox) {
+        checkbox.checked = source.checked;
+    });
+}
+
+function countSelected() {
+    return document.querySelectorAll(".item_checkbox:checked").length;
+}
+
+function confirmDelete() {
+    const selected = countSelected();
+    if (selected === 0) {
+        alert("Select at least one item to delete.");
+        return false;
+    }
+    return confirm("Delete " + selected + " selected item(s)?");
+}
+
+function confirmReassign() {
+    const selected = countSelected();
+    if (selected === 0) {
+        alert("Select at least one item to reassign.");
+        return false;
+    }
+    return true;
+}
+
+</script>
+
+{% endblock %}
